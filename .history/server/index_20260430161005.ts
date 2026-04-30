@@ -418,24 +418,7 @@ fastify.get("/api/imessage/diagnose", async () => {
     return { issues };
 });
 
-// iMessage debug
-fastify.get("/api/imessage/debug", async () => {
-    try {
-        const latestRowId = await im.getLatestRowId();
-        const newMsgs = await im.getNewMessages(latestRowId - 10);
-        return {
-            currentPollRowId: latestRowId,
-            recentMessages: newMsgs.map((m) => ({
-                rowid: m.rowid,
-                from_me: m.is_from_me,
-                sender: m.sender,
-                text: m.text.slice(0, 50),
-            })),
-        };
-    } catch (e) {
-        return { error: (e as Error).message };
-    }
-});
+
 
 // iMessage test
 fastify.post("/api/imessage/test", async (req) => {

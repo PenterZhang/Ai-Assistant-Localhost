@@ -331,6 +331,11 @@ fastify.get("/api/health", async () => {
     }
     return s;
 });
+// iMessage 诊断
+fastify.get("/api/imessage/diagnose", async () => {
+    const issues = await im.diagnose();
+    return { issues };
+});
 // Models
 fastify.get("/api/models", async () => Object.entries(CFG.models).map(([id, m]) => ({ id, name: m.name || id })));
 // Sessions CRUD

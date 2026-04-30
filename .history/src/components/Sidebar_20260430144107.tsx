@@ -21,7 +21,6 @@ export function Sidebar({
     health, sleepActive, onToggleSleep,
 }: Props) {
     const [diagnosing, setDiagnosing] = useState(false);
-    const [testing, setTesting] = useState(false);
 
     const handleDiagnose = async () => {
         setDiagnosing(true);
@@ -33,29 +32,6 @@ export function Sidebar({
             alert("诊断失败: " + (e as Error).message);
         } finally {
             setDiagnosing(false);
-        }
-    };
-
-    const handleTest = async () => {
-        const handle = prompt("输入联系人的 iMessage 地址（和添加联系人时填的一样）:");
-        if (!handle) return;
-        setTesting(true);
-        try {
-            const r = await fetch("/api/imessage/test", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ handle }),
-            });
-            const d = await r.json();
-            if (d.error) {
-                alert("错误: " + d.error);
-            } else {
-                alert(`AI 回复:\n${d.reply}\n\n已发送到 ${handle}: ${d.sent ? "成功 ✓" : "失败 ✗"}`);
-            }
-        } catch (e) {
-            alert("测试失败: " + (e as Error).message);
-        } finally {
-            setTesting(false);
         }
     };
 
@@ -93,11 +69,13 @@ export function Sidebar({
                     ))}
                 </div>
                 <button className="btn-sm" onClick={onAddContact}>+ 添加联系人</button>
-                <button className="btn-sm" onClick={handleDiagnose} disabled={diagnosing} style={{ marginTop: 4 }}>
+                <button
+                    className="btn-sm"
+                    onClick={handleDiagnose}
+                    disabled={diagnosing}
+                    style={{ marginTop: 4 }}
+                >
                     {diagnosing ? "诊断中..." : "🔍 诊断 iMessage"}
-                </button>
-                <button className="btn-sm" onClick={handleTest} disabled={testing} style={{ marginTop: 4 }}>
-                    {testing ? "测试中..." : "🧪 测试 iMessage"}
                 </button>
             </div>
 
