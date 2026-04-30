@@ -1,0 +1,27 @@
+{
+  "port": 18789,
+  "default_model": "qwen",
+  "system_prompt": "你是一个有用的AI助手。回答清晰准确。代码请用 Markdown 代码块并标注语言。不确定就说不知道。",
+  "models": {
+    "mimo": {
+      "name": "MiMo",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key": "sk-cnzkv6vfo8zd10p71cdxu63tyb4ov68f07fkf5rx3umnp8x2",
+      "model_id": "mimo-1t",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    },
+    "qwen": {
+      "name": "Qwen 2.5 (本地)",
+      "base_url": "http://localhost:11434",
+      "model_id": "qwen2.5:7b",
+      "temperature": 0.7,
+      "max_tokens": 4096
+    }
+  },
+  "imessage": {
+    "enabled": true,
+    "poll_interval": 3,
+    "cooldown": 5
+  }
+}
