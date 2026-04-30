@@ -219,109 +219,62 @@ function startPoller() {
         return;
     }
 
-    polling = true;
-
-    // ✅ 用一个对象包裹，方便在闭包里修改
-    const state = { lastRowId: 0, ready: false };
+    let lastRowId = im.getLatestRowId();
     const cooldowns: Record<string, number> = {};
+    polling = true;
+    console.log(`[iMessage] polling from ROWID ${lastRowId}`);
 
-    // ✅ 异步初始化 ROWID
-    im.getLatestRowId().then((id) => {
-        state.lastRowId = id;
-        state.ready = true;
-        console.log(`[iMessage] polling from ROWID ${id}`);
-    });
+      setInterval(async () => {
+    try {
+      // ✅ 加 await
+      const msgs = await im.getNewMessages(lastRowId);
+      for (const m of msgs) {
+        lastRowId = Math.max(lastRowId, m.rowid);
+        if (m.is_from_me || !m.text.trim()) continue;
+        const now = Date.now() / 1000;
+        if (now - (cooldowns[m.sender] || 0) < CFG.imessage.cooldown) continue;
 
-    setInterval(async () => {
-        if (!state.ready) return;
-        try {
-            const msgs = await im.getNewMessages(state.lastRowId);
-            for (const m of msgs) {
-                state.lastRowId = Math.max(state.lastRowId, m.rowid);
-                if (m.is_from_me || !m.text.trim()) continue;
-                const now = Date.now() / 1000;
-                if (now - (cooldowns[m.sender] || 0) < CFG.imessage.cooldown)
-                    continue;
-
-                const contacts = dbQuery(
-                    "SELECT * FROM imessage_contacts WHERE handle_id = ?",
-                    [m.sender],
-                );
-                const contact = contacts[0] as unknown as IMContact | undefined;
-                if (!contact?.auto_reply) continue;
-                if (contact.trigger_mode === "prefix:/ai") {
-                    if (!m.text.startsWith("/ai")) continue;
-                    m.text = m.text.slice(3).trim();
-                }
-
-                let sid: string;
-                const existing = dbQuery(
-                    "SELECT id FROM sessions WHERE imessage_handle = ? AND source = 'imessage'",
-                    [m.sender],
-                );
-                if (existing.length) {
-                    sid = existing[0].id as string;
-                } else {
-                    sid = crypto.randomUUID();
-                    const n = Date.now() / 1000;
-                    dbRun(
-                        "INSERT INTO sessions (id,title,model,source,imessage_handle,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
-                        [
-                            sid,
-                            `iMessage: ${contact.name || m.sender}`,
-                            contact.model,
-                            "imessage",
-                            m.sender,
-                            n,
-                            n,
-                        ],
-                    );
-                }
-
-                dbRun(
-                    "INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)",
-                    [
-                        crypto.randomUUID(),
-                        sid,
-                        "user",
-                        m.text,
-                        Date.now() / 1000,
-                    ],
-                );
-
-                const history = dbQuery(
-                    "SELECT role,content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20",
-                    [sid],
-                ).reverse();
-                const messages: Msg[] = [
-                    { role: "system", content: CFG.system_prompt },
-                    ...(history as unknown as Msg[]),
-                ];
-
-                const streamFn = getStreamFn(contact.model);
-                let full = "";
-                for await (const chunk of streamFn(messages)) full += chunk;
-
-                if (full) {
-                    dbRun(
-                        "INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)",
-                        [
-                            crypto.randomUUID(),
-                            sid,
-                            "assistant",
-                            full,
-                            contact.model,
-                            Date.now() / 1000,
-                        ],
-                    );
-                    im.sendMessage(m.sender, full);
-                    cooldowns[m.sender] = Date.now() / 1000;
-                }
-            }
-        } catch (e) {
-            console.error("[iMessage]", (e as Error).message);
+        const contacts = dbQuery("SELECT * FROM imessage_contacts WHERE handle_id = ?", [m.sender]);
+        const contact = contacts[0] as unknown as IMContact | undefined;
+        if (!contact?.auto_reply) continue;
+        if (contact.trigger_mode === "prefix:/ai") {
+          if (!m.text.startsWith("/ai")) continue;
+          m.text = m.text.slice(3).trim();
         }
-    }, CFG.imessage.poll_interval * 1000);
+
+        let sid: string;
+        const existing = dbQuery("SELECT id FROM sessions WHERE imessage_handle = ? AND source = 'imessage'", [m.sender]);
+        if (existing.length) {
+          sid = existing[0].id as string;
+        } else {
+          sid = crypto.randomUUID();
+          const n = Date.now() / 1000;
+          dbRun("INSERT INTO sessions (id,title,model,source,imessage_handle,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            [sid, `iMessage: ${contact.name || m.sender}`, contact.model, "imessage", m.sender, n, n]);
+        }
+
+        dbRun("INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)",
+          [crypto.randomUUID(), sid, "user", m.text, Date.now() / 1000]);
+
+        const history = dbQuery("SELECT role,content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20", [sid]).reverse();
+        const messages: Msg[] = [{ role: "system", content: CFG.system_prompt }, ...history as unknown as Msg[]];
+
+        const streamFn = getStreamFn(contact.model);
+        let full = "";
+        for await (const chunk of streamFn(messages)) full += chunk;
+
+        if (full) {
+          dbRun("INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)",
+            [crypto.randomUUID(), sid, "assistant", full, contact.model, Date.now() / 1000]);
+          im.sendMessage(m.sender, full);
+          cooldowns[m.sender] = Date.now() / 1000;
+        }
+      }
+    } catch (e) {
+      console.error("[iMessage]", (e as Error).message);
+    }
+  }, CFG.imessage.poll_interval * 1000);
+
 }
 
 // ── Fastify ──

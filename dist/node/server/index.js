@@ -40,38 +40,79 @@ exports.fastify = void 0;
 exports.startServer = startServer;
 const fastify_1 = __importDefault(require("fastify"));
 const static_1 = __importDefault(require("@fastify/static"));
-const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
+const sql_js_1 = __importDefault(require("sql.js"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const crypto_1 = __importDefault(require("crypto"));
 const os_1 = __importDefault(require("os"));
 const im = __importStar(require("./imessage"));
-// ── Config & DB ──
+// ── Config ──
 const ROOT = process.cwd();
 const CFG = JSON.parse(fs_1.default.readFileSync(path_1.default.join(ROOT, "config.json"), "utf-8"));
 const DB_DIR = path_1.default.join(os_1.default.homedir(), ".ai-assistant");
 if (!fs_1.default.existsSync(DB_DIR))
     fs_1.default.mkdirSync(DB_DIR, { recursive: true });
-const db = new better_sqlite3_1.default(path_1.default.join(DB_DIR, "chat.db"));
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '新对话',
-    model TEXT NOT NULL DEFAULT 'mimo', source TEXT NOT NULL DEFAULT 'web',
-    imessage_handle TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
-    content TEXT NOT NULL, model TEXT, created_at REAL NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-  );
-  CREATE TABLE IF NOT EXISTS imessage_contacts (
-    handle_id TEXT PRIMARY KEY, name TEXT, auto_reply INTEGER DEFAULT 1,
-    model TEXT DEFAULT 'mimo', trigger_mode TEXT DEFAULT 'always',
-    created_at REAL NOT NULL
-  );
-`);
+const DB_PATH = path_1.default.join(DB_DIR, "chat.db");
+// ── sql.js 数据库封装 ──
+let db;
+let dbSaveTimer = null;
+function dbSave() {
+    // 防抖：多次写入合并为一次磁盘写入
+    if (dbSaveTimer)
+        clearTimeout(dbSaveTimer);
+    dbSaveTimer = setTimeout(() => {
+        const data = db.export();
+        fs_1.default.writeFileSync(DB_PATH, Buffer.from(data));
+    }, 500);
+}
+function dbQuery(sql, params = []) {
+    const stmt = db.prepare(sql);
+    if (params.length)
+        stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return rows;
+}
+function dbRun(sql, params = []) {
+    db.run(sql, params);
+    dbSave();
+}
+async function initDB() {
+    const SQL = await (0, sql_js_1.default)();
+    if (fs_1.default.existsSync(DB_PATH)) {
+        const buf = fs_1.default.readFileSync(DB_PATH);
+        db = new SQL.Database(buf);
+    }
+    else {
+        db = new SQL.Database();
+    }
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("PRAGMA foreign_keys = ON");
+    db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '新对话',
+      model TEXT NOT NULL DEFAULT 'mimo', source TEXT NOT NULL DEFAULT 'web',
+      imessage_handle TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL
+    )
+  `);
+    db.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+      content TEXT NOT NULL, model TEXT, created_at REAL NOT NULL
+    )
+  `);
+    db.run(`
+    CREATE TABLE IF NOT EXISTS imessage_contacts (
+      handle_id TEXT PRIMARY KEY, name TEXT, auto_reply INTEGER DEFAULT 1,
+      model TEXT DEFAULT 'mimo', trigger_mode TEXT DEFAULT 'always',
+      created_at REAL NOT NULL
+    )
+  `);
+    dbSave();
+}
 // ── Model Streaming ──
 async function* streamMimo(messages) {
     const mc = CFG.models.mimo;
@@ -120,8 +161,6 @@ async function* streamMimo(messages) {
     }
 }
 async function* streamOllama(messages) {
-    // ✅ 通用 Ollama 调用，不绑定具体模型名
-    // 从配置中找到第一个 base_url 包含 11434 的模型
     const ollamaModel = Object.values(CFG.models).find((m) => m.base_url.includes("11434"));
     if (!ollamaModel) {
         yield "\n\n**未配置 Ollama 模型**";
@@ -162,15 +201,12 @@ async function* streamOllama(messages) {
         }
     }
 }
-// ✅ 根据 modelId 自动选择正确的 stream 函数
 function getStreamFn(modelId) {
     const mc = CFG.models[modelId];
     if (!mc)
         return streamMimo;
-    // base_url 包含 11434 → Ollama
     if (mc.base_url.includes("11434"))
         return streamOllama;
-    // 其他 → OpenAI 兼容（MiMo）
     return streamMimo;
 }
 // ── iMessage Poller ──
@@ -182,22 +218,30 @@ function startPoller() {
         console.log("[iMessage] chat.db not accessible");
         return;
     }
-    let lastRowId = im.getLatestRowId();
-    const cooldowns = {};
     polling = true;
-    console.log(`[iMessage] polling from ROWID ${lastRowId}`);
+    // ✅ 用一个对象包裹，方便在闭包里修改
+    const state = { lastRowId: 0, ready: false };
+    const cooldowns = {};
+    // ✅ 异步初始化 ROWID
+    im.getLatestRowId().then((id) => {
+        state.lastRowId = id;
+        state.ready = true;
+        console.log(`[iMessage] polling from ROWID ${id}`);
+    });
     setInterval(async () => {
+        if (!state.ready)
+            return;
         try {
-            for (const m of im.getNewMessages(lastRowId)) {
-                lastRowId = Math.max(lastRowId, m.rowid);
+            const msgs = await im.getNewMessages(state.lastRowId);
+            for (const m of msgs) {
+                state.lastRowId = Math.max(state.lastRowId, m.rowid);
                 if (m.is_from_me || !m.text.trim())
                     continue;
                 const now = Date.now() / 1000;
                 if (now - (cooldowns[m.sender] || 0) < CFG.imessage.cooldown)
                     continue;
-                const contact = db
-                    .prepare("SELECT * FROM imessage_contacts WHERE handle_id=?")
-                    .get(m.sender);
+                const contacts = dbQuery("SELECT * FROM imessage_contacts WHERE handle_id = ?", [m.sender]);
+                const contact = contacts[0];
                 if (!contact?.auto_reply)
                     continue;
                 if (contact.trigger_mode === "prefix:/ai") {
@@ -206,32 +250,48 @@ function startPoller() {
                     m.text = m.text.slice(3).trim();
                 }
                 let sid;
-                const existing = db
-                    .prepare("SELECT id FROM sessions WHERE imessage_handle=? AND source='imessage'")
-                    .get(m.sender);
-                if (existing) {
-                    sid = existing.id;
+                const existing = dbQuery("SELECT id FROM sessions WHERE imessage_handle = ? AND source = 'imessage'", [m.sender]);
+                if (existing.length) {
+                    sid = existing[0].id;
                 }
                 else {
                     sid = crypto_1.default.randomUUID();
-                    const now = Date.now() / 1000;
-                    db.prepare("INSERT INTO sessions (id,title,model,source,imessage_handle,created_at,updated_at) VALUES (?,?,?,?,?,?,?)").run(sid, `iMessage: ${contact.name || m.sender}`, contact.model, "imessage", m.sender, now, now);
+                    const n = Date.now() / 1000;
+                    dbRun("INSERT INTO sessions (id,title,model,source,imessage_handle,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", [
+                        sid,
+                        `iMessage: ${contact.name || m.sender}`,
+                        contact.model,
+                        "imessage",
+                        m.sender,
+                        n,
+                        n,
+                    ]);
                 }
-                db.prepare("INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)").run(crypto_1.default.randomUUID(), sid, "user", m.text, Date.now() / 1000);
-                const history = db
-                    .prepare("SELECT role,content FROM messages WHERE session_id=? ORDER BY created_at DESC LIMIT 20")
-                    .all(sid).reverse();
+                dbRun("INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)", [
+                    crypto_1.default.randomUUID(),
+                    sid,
+                    "user",
+                    m.text,
+                    Date.now() / 1000,
+                ]);
+                const history = dbQuery("SELECT role,content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 20", [sid]).reverse();
                 const messages = [
                     { role: "system", content: CFG.system_prompt },
                     ...history,
                 ];
-                // ✅ 用 getStreamFn
                 const streamFn = getStreamFn(contact.model);
                 let full = "";
                 for await (const chunk of streamFn(messages))
                     full += chunk;
                 if (full) {
-                    db.prepare("INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)").run(crypto_1.default.randomUUID(), sid, "assistant", full, contact.model, Date.now() / 1000);
+                    dbRun("INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)", [
+                        crypto_1.default.randomUUID(),
+                        sid,
+                        "assistant",
+                        full,
+                        contact.model,
+                        Date.now() / 1000,
+                    ]);
                     im.sendMessage(m.sender, full);
                     cooldowns[m.sender] = Date.now() / 1000;
                 }
@@ -247,6 +307,7 @@ const fastify = (0, fastify_1.default)({ logger: false });
 exports.fastify = fastify;
 // Health
 fastify.get("/api/health", async () => {
+    // ✅ checkAccess 是同步的，不需要改
     const s = { imessage: im.checkAccess() };
     for (const [key, mc] of Object.entries(CFG.models)) {
         try {
@@ -273,16 +334,17 @@ fastify.get("/api/health", async () => {
 // Models
 fastify.get("/api/models", async () => Object.entries(CFG.models).map(([id, m]) => ({ id, name: m.name || id })));
 // Sessions CRUD
-fastify.get("/api/sessions", async () => db.prepare("SELECT * FROM sessions ORDER BY updated_at DESC").all());
+fastify.get("/api/sessions", async () => dbQuery("SELECT * FROM sessions ORDER BY updated_at DESC"));
 fastify.post("/api/sessions", async (req) => {
     const { model } = req.body;
     const id = crypto_1.default.randomUUID();
     const now = Date.now() / 1000;
-    db.prepare("INSERT INTO sessions (id,title,model,source,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, "新对话", model || CFG.default_model, "web", now, now);
+    const m = model || CFG.default_model;
+    dbRun("INSERT INTO sessions (id,title,model,source,created_at,updated_at) VALUES (?,?,?,?,?,?)", [id, "新对话", m, "web", now, now]);
     return {
         id,
         title: "新对话",
-        model: model || CFG.default_model,
+        model: m,
         source: "web",
         created_at: now,
         updated_at: now,
@@ -292,23 +354,21 @@ fastify.put("/api/sessions/:id", async (req) => {
     const { id } = req.params;
     const { title, model } = req.body;
     if (title)
-        db.prepare("UPDATE sessions SET title=? WHERE id=?").run(title, id);
+        dbRun("UPDATE sessions SET title = ? WHERE id = ?", [title, id]);
     if (model)
-        db.prepare("UPDATE sessions SET model=? WHERE id=?").run(model, id);
+        dbRun("UPDATE sessions SET model = ? WHERE id = ?", [model, id]);
     return { ok: true };
 });
 fastify.delete("/api/sessions/:id", async (req) => {
     const { id } = req.params;
-    db.prepare("DELETE FROM messages WHERE session_id=?").run(id);
-    db.prepare("DELETE FROM sessions WHERE id=?").run(id);
+    dbRun("DELETE FROM messages WHERE session_id = ?", [id]);
+    dbRun("DELETE FROM sessions WHERE id = ?", [id]);
     return { ok: true };
 });
 // Messages
 fastify.get("/api/sessions/:id/messages", async (req) => {
     const { id } = req.params;
-    return db
-        .prepare("SELECT * FROM messages WHERE session_id=? ORDER BY created_at")
-        .all(id);
+    return dbQuery("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at", [id]);
 });
 // Chat SSE
 fastify.post("/api/chat", async (req, reply) => {
@@ -317,11 +377,9 @@ fastify.post("/api/chat", async (req, reply) => {
         return reply.code(400).send({ error: "empty" });
     const now = Date.now() / 1000;
     const modelId = model || CFG.default_model;
-    db.prepare("INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)").run(crypto_1.default.randomUUID(), session_id, "user", message.trim(), now);
-    db.prepare("UPDATE sessions SET updated_at=? WHERE id=?").run(now, session_id);
-    const history = db
-        .prepare("SELECT role,content FROM messages WHERE session_id=? ORDER BY created_at")
-        .all(session_id);
+    dbRun("INSERT INTO messages (id,session_id,role,content,created_at) VALUES (?,?,?,?,?)", [crypto_1.default.randomUUID(), session_id, "user", message.trim(), now]);
+    dbRun("UPDATE sessions SET updated_at = ? WHERE id = ?", [now, session_id]);
+    const history = dbQuery("SELECT role,content FROM messages WHERE session_id = ? ORDER BY created_at", [session_id]);
     const messages = [
         { role: "system", content: CFG.system_prompt },
         ...history,
@@ -331,7 +389,6 @@ fastify.post("/api/chat", async (req, reply) => {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
     });
-    // ✅ 用 getStreamFn
     const streamFn = getStreamFn(modelId);
     let full = "";
     try {
@@ -343,29 +400,42 @@ fastify.post("/api/chat", async (req, reply) => {
     catch (e) {
         reply.raw.write(`data: ${JSON.stringify({ content: `[Error] ${e.message}` })}\n\n`);
     }
-    db.prepare("INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)").run(crypto_1.default.randomUUID(), session_id, "assistant", full, modelId, Date.now() / 1000);
-    // ✅ 错误不设标题
-    const n = db
-        .prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id=? AND role='user'")
-        .get(session_id).n;
+    dbRun("INSERT INTO messages (id,session_id,role,content,model,created_at) VALUES (?,?,?,?,?,?)", [
+        crypto_1.default.randomUUID(),
+        session_id,
+        "assistant",
+        full,
+        modelId,
+        Date.now() / 1000,
+    ]);
+    const countResult = dbQuery("SELECT COUNT(*) as n FROM messages WHERE session_id = ? AND role = 'user'", [session_id]);
+    const n = countResult[0]?.n || 0;
     if (n === 1 && !full.startsWith("\n\n**")) {
-        db.prepare("UPDATE sessions SET title=? WHERE id=?").run(full.slice(0, 40) + (full.length > 40 ? "…" : ""), session_id);
+        dbRun("UPDATE sessions SET title = ? WHERE id = ?", [
+            full.slice(0, 40) + (full.length > 40 ? "…" : ""),
+            session_id,
+        ]);
     }
     reply.raw.write("data: [DONE]\n\n");
     reply.raw.end();
 });
 // iMessage Contacts
-fastify.get("/api/imessage/contacts", async () => db
-    .prepare("SELECT * FROM imessage_contacts ORDER BY created_at DESC")
-    .all());
+fastify.get("/api/imessage/contacts", async () => dbQuery("SELECT * FROM imessage_contacts ORDER BY created_at DESC"));
 fastify.post("/api/imessage/contacts", async (req) => {
     const { handle_id, name, trigger_mode } = req.body;
-    db.prepare("INSERT OR REPLACE INTO imessage_contacts (handle_id,name,auto_reply,model,trigger_mode,created_at) VALUES (?,?,?,?,?,?)").run(handle_id, name || "", 1, "mimo", trigger_mode || "always", Date.now() / 1000);
+    dbRun("INSERT OR REPLACE INTO imessage_contacts (handle_id,name,auto_reply,model,trigger_mode,created_at) VALUES (?,?,?,?,?,?)", [
+        handle_id,
+        name || "",
+        1,
+        "mimo",
+        trigger_mode || "always",
+        Date.now() / 1000,
+    ]);
     return { ok: true };
 });
 fastify.delete("/api/imessage/contacts/:id", async (req) => {
     const { id } = req.params;
-    db.prepare("DELETE FROM imessage_contacts WHERE handle_id=?").run(id);
+    dbRun("DELETE FROM imessage_contacts WHERE handle_id = ?", [id]);
     return { ok: true };
 });
 // Sleep
@@ -400,6 +470,7 @@ else {
 }
 // ── Start ──
 async function startServer() {
+    await initDB();
     const port = CFG.port || 18789;
     await fastify.listen({ port, host: "127.0.0.1" });
     console.log(`[Server] API:  http://127.0.0.1:${port}`);

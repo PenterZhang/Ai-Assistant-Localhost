@@ -219,25 +219,15 @@ function startPoller() {
         return;
     }
 
-    polling = true;
-
-    // ✅ 用一个对象包裹，方便在闭包里修改
-    const state = { lastRowId: 0, ready: false };
+    let lastRowId = im.getLatestRowId();
     const cooldowns: Record<string, number> = {};
-
-    // ✅ 异步初始化 ROWID
-    im.getLatestRowId().then((id) => {
-        state.lastRowId = id;
-        state.ready = true;
-        console.log(`[iMessage] polling from ROWID ${id}`);
-    });
+    polling = true;
+    console.log(`[iMessage] polling from ROWID ${lastRowId}`);
 
     setInterval(async () => {
-        if (!state.ready) return;
         try {
-            const msgs = await im.getNewMessages(state.lastRowId);
-            for (const m of msgs) {
-                state.lastRowId = Math.max(state.lastRowId, m.rowid);
+            for (const m of im.getNewMessages(lastRowId)) {
+                lastRowId = Math.max(lastRowId, m.rowid);
                 if (m.is_from_me || !m.text.trim()) continue;
                 const now = Date.now() / 1000;
                 if (now - (cooldowns[m.sender] || 0) < CFG.imessage.cooldown)
@@ -263,7 +253,7 @@ function startPoller() {
                     sid = existing[0].id as string;
                 } else {
                     sid = crypto.randomUUID();
-                    const n = Date.now() / 1000;
+                    const now = Date.now() / 1000;
                     dbRun(
                         "INSERT INTO sessions (id,title,model,source,imessage_handle,created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                         [
@@ -272,8 +262,8 @@ function startPoller() {
                             contact.model,
                             "imessage",
                             m.sender,
-                            n,
-                            n,
+                            now,
+                            now,
                         ],
                     );
                 }
@@ -330,29 +320,25 @@ const fastify = Fastify({ logger: false });
 
 // Health
 fastify.get("/api/health", async () => {
-    // ✅ checkAccess 是同步的，不需要改
-    const s: Record<string, boolean> = { imessage: im.checkAccess() };
-    for (const [key, mc] of Object.entries(CFG.models)) {
-        try {
-            const isOllama = mc.base_url.includes("11434");
-            const url = isOllama
-                ? `${mc.base_url}/api/tags`
-                : `${mc.base_url}/models`;
-            const headers: Record<string, string> = {};
-            if (!isOllama && mc.api_key && mc.api_key !== "YOUR_MIMO_API_KEY") {
-                headers.Authorization = `Bearer ${mc.api_key}`;
-            }
-            const r = await fetch(url, {
-                headers,
-                signal: AbortSignal.timeout(5000),
-            });
-            s[key] = r.ok;
-        } catch {
-            s[key] = false;
-        }
+  // ✅ checkAccess 是同步的，不需要改
+  const s: Record<string, boolean> = { imessage: im.checkAccess() };
+  for (const [key, mc] of Object.entries(CFG.models)) {
+    try {
+      const isOllama = mc.base_url.includes("11434");
+      const url = isOllama ? `${mc.base_url}/api/tags` : `${mc.base_url}/models`;
+      const headers: Record<string, string> = {};
+      if (!isOllama && mc.api_key && mc.api_key !== "YOUR_MIMO_API_KEY") {
+        headers.Authorization = `Bearer ${mc.api_key}`;
+      }
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+      s[key] = r.ok;
+    } catch {
+      s[key] = false;
     }
-    return s;
+  }
+  return s;
 });
+
 
 // Models
 fastify.get("/api/models", async () =>

@@ -1,4 +1,4 @@
-import initSqlJs from "sql.js";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -19,15 +19,25 @@ export interface IMessageRaw {
 const CHAT_DB = path.join(os.homedir(), "Library", "Messages", "chat.db");
 const APPLE_EPOCH_OFFSET = 978_307_200;
 
-// ── sql.js 懒加载 ──
+// ── sql.js 初始化（懒加载，只初始化一次）──
 
-let sqlModule: any = null;
+let sqlReady: Promise<typeof import("sql.js")> | null = null;
 
-async function getSQL() {
-    if (!sqlModule) {
-        sqlModule = await initSqlJs();
+function getSQL() {
+    if (!sqlReady) sqlReady = initSqlJs();
+    return sqlReady;
+}
+
+function readChatDB(): SqlJsDatabase | null {
+    if (!fs.existsSync(CHAT_DB)) return null;
+    try {
+        const buf = fs.readFileSync(CHAT_DB);
+        const SQL = { Database: (globalThis as any).__sqljs_ctor };
+        // 直接用已缓存的 SQL 构造器
+        return null; // fallback below
+    } catch {
+        return null;
     }
-    return sqlModule;
 }
 
 // ── 公共方法 ──

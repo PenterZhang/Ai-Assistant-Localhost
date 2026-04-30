@@ -10,6 +10,7 @@
     "build:node": "tsc -p tsconfig.node.json",
     "build": "npm run build:renderer && npm run build:node",
     "start": "npm run build && electron .",
+
     "dist": "npm run build && electron-builder --mac --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",

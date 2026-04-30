@@ -219,25 +219,17 @@ function startPoller() {
         return;
     }
 
-    polling = true;
-
-    // ✅ 用一个对象包裹，方便在闭包里修改
-    const state = { lastRowId: 0, ready: false };
+    let lastRowId = im.getLatestRowId();
     const cooldowns: Record<string, number> = {};
-
-    // ✅ 异步初始化 ROWID
-    im.getLatestRowId().then((id) => {
-        state.lastRowId = id;
-        state.ready = true;
-        console.log(`[iMessage] polling from ROWID ${id}`);
-    });
+    polling = true;
+    console.log(`[iMessage] polling from ROWID ${lastRowId}`);
 
     setInterval(async () => {
-        if (!state.ready) return;
         try {
-            const msgs = await im.getNewMessages(state.lastRowId);
+            // ✅ 加 await
+            const msgs = await im.getNewMessages(lastRowId);
             for (const m of msgs) {
-                state.lastRowId = Math.max(state.lastRowId, m.rowid);
+                lastRowId = Math.max(lastRowId, m.rowid);
                 if (m.is_from_me || !m.text.trim()) continue;
                 const now = Date.now() / 1000;
                 if (now - (cooldowns[m.sender] || 0) < CFG.imessage.cooldown)
