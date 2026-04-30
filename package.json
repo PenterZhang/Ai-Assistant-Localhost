@@ -1,7 +1,6 @@
 {
-  "name": "ai-assistant",
+  "name": "jiahe",
   "version": "1.0.0",
-  "description": "Local AI Assistant with iMessage",
   "main": "dist/node/electron/main.js",
   "scripts": {
     "dev": "concurrently -k -n srv,ui -c blue,green \"tsx watch server/index.ts\" \"vite\"",
@@ -39,50 +38,28 @@
     "concurrently": "^9.1.2"
   },
   "build": {
-    "appId": "com.local.ai-assistant",
-    "productName": "AI Assistant",
+    "appId": "com.local.jiahe",
+    "productName": "甲核",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"],
+      "icon": "src/assets/logo.png"
+    },
+    "win": {
+      "target": ["nsis", "zip"],
+      "icon": "src/assets/logo.png"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "src/assets/logo.png"
+    },
     "directories": {
-      "output": "release"
+      "output": "dist-build"
     },
     "files": [
       "dist/**/*",
-      "config.json"
-    ],
-
-    "mac": {
-      "category": "public.app-category.productivity",
-      "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
-      ],
-      "icon": "build/icon.icns"
-    },
-
-    "win": {
-      "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
-      ],
-      "icon": "build/icon.png"
-    },
-
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico",
-      "installerHeaderIcon": "build/icon.ico",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "AI Assistant"
-    },
-
-    "linux": {
-      "target": [
-        { "target": "AppImage", "arch": ["x64"] }
-      ],
-      "category": "Utility",
-      "icon": "build/icon.png"
-    }
+      "config.json",
+      "src/assets/**/*"
+    ]
   }
 }

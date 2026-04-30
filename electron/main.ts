@@ -1,4 +1,4 @@
-import { app, BrowserWindow, powerSaveBlocker } from "electron";
+import { app, BrowserWindow, powerSaveBlocker, nativeImage } from "electron";
 import path from "path";
 import fs from "fs";
 
@@ -7,21 +7,26 @@ const CFG = JSON.parse(
     fs.readFileSync(path.join(ROOT, "config.json"), "utf-8"),
 );
 const PORT = CFG.port || 18789;
-
-// ✅ 开发模式：不打包时 isPackaged = false
 const isDev = !app.isPackaged;
 
 let win: BrowserWindow | null = null;
 let blockerId: number | null = null;
 
 function createWindow() {
+    const iconPath = path.join(ROOT, "src", "assets", "logo.png");
+    const icon = fs.existsSync(iconPath)
+        ? nativeImage.createFromPath(iconPath)
+        : undefined;
+
     win = new BrowserWindow({
         width: 1200,
         height: 800,
         minWidth: 800,
         minHeight: 600,
+        title: "甲核",
         titleBarStyle: "hiddenInset",
         backgroundColor: "#060606",
+        icon,
         webPreferences: {
             preload: path.join(__dirname, "preload.js"),
             nodeIntegration: false,
@@ -29,7 +34,6 @@ function createWindow() {
         },
     });
 
-    // ✅ 开发模式加载 Vite，生产模式加载自己的 server
     if (isDev) {
         win.loadURL("http://localhost:5173");
     } else {
@@ -45,7 +49,15 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-    // ✅ 生产模式才启动 server，开发模式由外部启动
+    // ✅ 设置 Dock 图标（macOS）
+    if (process.platform === "darwin" && app.dock) {
+        const iconPath = path.join(ROOT, "src", "assets", "logo.png");
+        if (fs.existsSync(iconPath)) {
+            const icon = nativeImage.createFromPath(iconPath);
+            app.dock.setIcon(icon);
+        }
+    }
+
     if (!isDev) {
         const { startServer } = require(
             path.join(ROOT, "dist", "node", "server", "index"),
@@ -54,7 +66,6 @@ app.whenReady().then(async () => {
     }
 
     blockerId = powerSaveBlocker.start("prevent-app-suspension");
-
     createWindow();
 
     app.on("activate", () => {

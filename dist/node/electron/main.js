@@ -9,25 +9,29 @@ const fs_1 = __importDefault(require("fs"));
 const ROOT = process.cwd();
 const CFG = JSON.parse(fs_1.default.readFileSync(path_1.default.join(ROOT, "config.json"), "utf-8"));
 const PORT = CFG.port || 18789;
-// ✅ 开发模式：不打包时 isPackaged = false
 const isDev = !electron_1.app.isPackaged;
 let win = null;
 let blockerId = null;
 function createWindow() {
+    const iconPath = path_1.default.join(ROOT, "src", "assets", "logo.png");
+    const icon = fs_1.default.existsSync(iconPath)
+        ? electron_1.nativeImage.createFromPath(iconPath)
+        : undefined;
     win = new electron_1.BrowserWindow({
         width: 1200,
         height: 800,
         minWidth: 800,
         minHeight: 600,
+        title: "甲核",
         titleBarStyle: "hiddenInset",
         backgroundColor: "#060606",
+        icon,
         webPreferences: {
             preload: path_1.default.join(__dirname, "preload.js"),
             nodeIntegration: false,
             contextIsolation: true,
         },
     });
-    // ✅ 开发模式加载 Vite，生产模式加载自己的 server
     if (isDev) {
         win.loadURL("http://localhost:5173");
     }
@@ -42,7 +46,14 @@ function createWindow() {
     });
 }
 electron_1.app.whenReady().then(async () => {
-    // ✅ 生产模式才启动 server，开发模式由外部启动
+    // ✅ 设置 Dock 图标（macOS）
+    if (process.platform === "darwin" && electron_1.app.dock) {
+        const iconPath = path_1.default.join(ROOT, "src", "assets", "logo.png");
+        if (fs_1.default.existsSync(iconPath)) {
+            const icon = electron_1.nativeImage.createFromPath(iconPath);
+            electron_1.app.dock.setIcon(icon);
+        }
+    }
     if (!isDev) {
         const { startServer } = require(path_1.default.join(ROOT, "dist", "node", "server", "index"));
         await startServer();
