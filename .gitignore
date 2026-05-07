@@ -1,5 +1,5 @@
-node_modules
-dist 
-dist-build
-.history
+node_modules/
+dist/
+dist-build/
+.history/
 config.json
