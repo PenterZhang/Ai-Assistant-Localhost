@@ -9,7 +9,7 @@ interface Props {
     streaming: boolean;
     model: string;
     onModelChange: (m: string) => void;
-    onSend: (text: string) => void;
+    onSend: (text: string, search?: boolean) => void;
     onMenuToggle: () => void;
 }
 
@@ -69,7 +69,7 @@ export function ChatArea({ title, messages, streaming, model, onModelChange, onS
                 )}
             </div>
 
-            <InputBar onSend={onSend} disabled={streaming} />
+            <InputBar onSend={onSend} streaming={streaming} />  {/* ✅ 修复 prop 名 */}
         </main>
     );
 }

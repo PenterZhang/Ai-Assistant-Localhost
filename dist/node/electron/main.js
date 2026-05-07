@@ -6,17 +6,27 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
-const ROOT = process.cwd();
-const CFG = JSON.parse(fs_1.default.readFileSync(path_1.default.join(ROOT, "config.json"), "utf-8"));
-const PORT = CFG.port || 18789;
+const ROOT = electron_1.app.isPackaged ? electron_1.app.getAppPath() : process.cwd();
+const PORT = (() => {
+    try {
+        return (JSON.parse(fs_1.default.readFileSync(path_1.default.join(ROOT, "config.json"), "utf-8"))
+            .port || 18789);
+    }
+    catch {
+        return 18789;
+    }
+})();
 const isDev = !electron_1.app.isPackaged;
 let win = null;
 let blockerId = null;
 function createWindow() {
     const iconPath = path_1.default.join(ROOT, "src", "assets", "logo.png");
-    const icon = fs_1.default.existsSync(iconPath)
-        ? electron_1.nativeImage.createFromPath(iconPath)
-        : undefined;
+    let icon;
+    try {
+        if (fs_1.default.existsSync(iconPath))
+            icon = electron_1.nativeImage.createFromPath(iconPath);
+    }
+    catch { }
     win = new electron_1.BrowserWindow({
         width: 1200,
         height: 800,
@@ -32,12 +42,8 @@ function createWindow() {
             contextIsolation: true,
         },
     });
-    if (isDev) {
-        win.loadURL("http://localhost:5173");
-    }
-    else {
-        win.loadURL(`http://127.0.0.1:${PORT}`);
-    }
+    // ✅ 先显示加载中页面
+    win.loadURL(`data:text/html,<html><body style="background:#060606;color:#6a655c;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>甲核 启动中...</p></body></html>`);
     win.on("close", (e) => {
         if (!electron_1.app._quitting) {
             e.preventDefault();
@@ -46,20 +52,37 @@ function createWindow() {
     });
 }
 electron_1.app.whenReady().then(async () => {
-    // ✅ 设置 Dock 图标（macOS）
+    // Dock 图标
     if (process.platform === "darwin" && electron_1.app.dock) {
         const iconPath = path_1.default.join(ROOT, "src", "assets", "logo.png");
-        if (fs_1.default.existsSync(iconPath)) {
-            const icon = electron_1.nativeImage.createFromPath(iconPath);
-            electron_1.app.dock.setIcon(icon);
+        try {
+            if (fs_1.default.existsSync(iconPath))
+                electron_1.app.dock.setIcon(electron_1.nativeImage.createFromPath(iconPath));
+        }
+        catch { }
+    }
+    // ✅ 先创建窗口，让用户看到东西
+    createWindow();
+    // ✅ 再启动 server
+    if (!isDev) {
+        try {
+            // ✅ 把 ROOT 传给 server
+            process.env.APP_ROOT = ROOT;
+            const { startServer } = require(path_1.default.join(ROOT, "dist", "node", "server", "core", "index"));
+            await startServer();
+        }
+        catch (e) {
+            console.error("[Electron] server start failed:", e);
         }
     }
-    if (!isDev) {
-        const { startServer } = require(path_1.default.join(ROOT, "dist", "node", "server", "index"));
-        await startServer();
+    // ✅ server 启动后，加载实际页面
+    if (win) {
+        const url = isDev
+            ? "http://localhost:5173"
+            : `http://127.0.0.1:${PORT}`;
+        win.loadURL(url);
     }
     blockerId = electron_1.powerSaveBlocker.start("prevent-app-suspension");
-    createWindow();
     electron_1.app.on("activate", () => {
         if (!win)
             createWindow();

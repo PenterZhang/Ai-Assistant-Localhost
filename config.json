@@ -2,17 +2,18 @@
   "port": 18789,
   "default_model": "qwen",
   "system_prompt": "你是一个有用的AI助手。回答清晰准确。代码请用 Markdown 代码块并标注语言。不确定就说不知道。",
+  "tavily_api_key": "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",
   "models": {
     "mimo": {
-      "name": "MiMo",
-      "base_url": "https://open.bigmodel.cn/api/paas/v4",
-      "api_key": "sk-cnzkv6vfo8zd10p71cdxu63tyb4ov68f07fkf5rx3umnp8x2",
-      "model_id": "mimo-1t",
+      "name": "MiMo Pro",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+      "api_key": "tp-c3odqr046xu0chfsvbz7yc06njxr240pwvpelar7scrlrsjz",
+      "model_id": "mimo-v2-pro",
       "temperature": 0.7,
       "max_tokens": 4096
     },
     "qwen": {
-      "name": "Qwen 2.5 (本地)",
+      "name": "千问7B",
       "base_url": "http://localhost:11434",
       "model_id": "qwen2.5:7b",
       "temperature": 0.7,

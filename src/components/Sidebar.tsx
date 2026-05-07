@@ -13,12 +13,14 @@ interface Props {
     health: Record<string, boolean>;
     sleepActive: boolean;
     onToggleSleep: () => void;
+    onOpenSettings: () => void;  // ✅ 加上这个
 }
 
 export function Sidebar({
     sessions, currentId, onSelect, onDelete, onNew,
     contacts, onAddContact, onDeleteContact,
     health, sleepActive, onToggleSleep,
+    onOpenSettings,  // ✅ 接收
 }: Props) {
     const [diagnosing, setDiagnosing] = useState(false);
     const [testing, setTesting] = useState(false);
@@ -115,6 +117,14 @@ export function Sidebar({
                         title="阻止系统休眠"
                     >
                         ☕
+                    </button>
+                    {/* ✅ 直接调用 onOpenSettings，不用 dispatchEvent */}
+                    <button
+                        className="btn-sleep"
+                        onClick={onOpenSettings}
+                        title="设置"
+                    >
+                        ⚙️
                     </button>
                 </div>
             </div>

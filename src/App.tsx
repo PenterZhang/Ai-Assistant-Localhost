@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
 import { AddContactModal } from "./components/AddContactModal";
+import { SetupWizard } from "./components/SetupWizard";
+import { Settings } from "./components/Settings";
 import { useSessions } from "./hooks/useSessions";
 import { useChat } from "./hooks/useChat";
 import { useIMessage } from "./hooks/useIMessage";
@@ -11,9 +13,10 @@ import "./App.css";
 
 export default function App() {
     const [model, setModel] = useState("qwen");
-    const [sidebarOpen, setSidebarOpen] = useState(true);
     const [showContactModal, setShowContactModal] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
     const [sleepActive, setSleepActive] = useState(false);
+    const [setupDone, setSetupDone] = useState(false);
 
     const { sessions, currentId, create, select, remove, reload: reloadSessions } = useSessions();
     const { messages, streaming, send } = useChat(currentId, model);
@@ -23,18 +26,16 @@ export default function App() {
     const currentSession = sessions.find(s => s.id === currentId);
     const title = currentSession?.title || "选择或创建对话";
 
-    const handleSend = useCallback(async (text: string) => {
-        // ✅ 先确保有 sessionId，再调 send
+    const handleSend = useCallback(async (text: string, search?: boolean) => {
         let sid = currentId;
         if (!sid) {
             const newSession = await create(model);
             sid = newSession.id;
         }
         if (!sid) return;
-        await send(text, sid);
+        await send(text, sid, search);
         await reloadSessions();
     }, [currentId, model, send, create, reloadSessions]);
-
 
     const handleNew = useCallback(async () => {
         await create(model);
@@ -44,6 +45,10 @@ export default function App() {
         const r = await api.sleep.toggle();
         setSleepActive(r.preventing);
     }, []);
+
+    if (!setupDone) {
+        return <SetupWizard onComplete={() => setSetupDone(true)} />;
+    }
 
     return (
         <div id="app">
@@ -59,6 +64,7 @@ export default function App() {
                 health={health}
                 sleepActive={sleepActive}
                 onToggleSleep={handleToggleSleep}
+                onOpenSettings={() => setShowSettings(true)}
             />
             <ChatArea
                 title={title}
@@ -67,12 +73,18 @@ export default function App() {
                 model={model}
                 onModelChange={setModel}
                 onSend={handleSend}
-                onMenuToggle={() => setSidebarOpen(o => !o)}
+                onMenuToggle={() => { }}
             />
             {showContactModal && (
                 <AddContactModal
                     onAdd={async (data) => { await addContact(data); setShowContactModal(false); }}
                     onClose={() => setShowContactModal(false)}
+                />
+            )}
+            {showSettings && (
+                <Settings
+                    onClose={() => setShowSettings(false)}
+                    onConfigChanged={() => reloadSessions()}
                 />
             )}
         </div>

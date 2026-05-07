@@ -1,51 +1,63 @@
-import React from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { Message } from "../types";
 import { CodeBlock } from "./CodeBlock";
+import type { Message } from "../types";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Props {
-  message: Message;
-  isStreaming?: boolean;
+    message: Message;
+    isStreaming?: boolean;
 }
 
 export function MessageBubble({ message, isStreaming }: Props) {
-  const isUser = message.role === "user";
-  const isEmpty = !message.content;
+    const isUser = message.role === "user";
+    const isSearching = (message as any).searching;
+    const isEmpty = !message.content && isStreaming;
 
-  return (
-    <div className={`message ${message.role}`}>
-      <div className="role">
-        {isUser ? "You" : "Assistant"}
-        {message.model && <span className="model-badge">{message.model}</span>}
-      </div>
-      <div className="body">
-        {isUser ? (
-          message.content
-        ) : isEmpty && isStreaming ? (
-          <div className="typing"><span /><span /><span /></div>
-        ) : (
-          <Markdown remarkPlugins={[remarkGfm]} components={{
-            pre({ children }: any) {
-              const child = React.Children.toArray(children).find(
-                (c: any) => React.isValidElement(c) && c.type === "code"
-              ) as any;
-              if (child?.props?.className?.includes("language-")) {
-                const lang = child.props.className.replace("language-", "");
-                const code = String(child.props.children).replace(/\n$/, "");
-                return <CodeBlock language={lang} code={code} />;
-              }
-              return <pre>{children}</pre>;
-            },
-            code({ className, children, ...props }: any) {
-              if (!className) return <code {...props}>{children}</code>;
-              return <code className={className}>{children}</code>;
-            },
-          }}>
-            {message.content}
-          </Markdown>
-        )}
-      </div>
-    </div>
-  );
+    return (
+        // ✅ msg → message，匹配 CSS
+        <div className={`message ${message.role}`}>
+            <div className="role">
+                {isUser ? "YOU" : "AI"}
+                {/* ✅ 显示模型名 */}
+                {!isUser && message.model && (
+                    <span className="model-badge">{message.model}</span>
+                )}
+            </div>
+            <div className="body">
+                {isUser ? (
+                    <p>{message.content}</p>
+                ) : isEmpty ? (
+                    <div className="thinking">
+                        <span className="dot-anim" />
+                        <span className="dot-anim" />
+                        <span className="dot-anim" />
+                    </div>
+                ) : isSearching ? (
+                    <div className="thinking">
+                        <span className="search-anim">🔍</span>
+                        <span>正在搜索...</span>
+                    </div>
+                ) : (
+                    <>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                                code({ className, children, ...props }: any) {
+                                    const match = /language-(\w+)/.exec(className || "");
+                                    const codeStr = String(children).replace(/\n$/, "");
+                                    if (match || codeStr.includes("\n")) {
+                                        return <CodeBlock language={match?.[1] || ""} code={codeStr} />;
+                                    }
+                                    return <code className={className} {...props}>{children}</code>;
+                                },
+                            }}
+                        >
+                            {message.content}
+                        </ReactMarkdown>
+                        {isStreaming && <span className="cursor" />}
+                    </>
+                )}
+            </div>
+        </div>
+    );
 }

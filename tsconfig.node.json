@@ -1,17 +1,24 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "lib": ["ES2022"],
-    "outDir": "dist/node",
-    "rootDir": ".",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "declaration": false,
-    "sourceMap": true
-  },
-  "include": ["server/**/*.ts", "electron/**/*.ts"]
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "strict": false,
+        "skipLibCheck": true,
+        "outDir": "./dist/node",
+        "rootDir": ".",
+        "declaration": false,
+        "resolveJsonModule": true,
+        "sourceMap": true
+    },
+    "include": [
+        "server/**/*.ts",
+        "electron/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "src",
+        "dist"
+    ]
 }

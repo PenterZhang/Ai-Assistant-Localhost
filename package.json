@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "dist/node/electron/main.js",
   "scripts": {
-    "dev": "concurrently -k -n srv,ui -c blue,green \"tsx watch server/index.ts\" \"vite\"",
-    "dev:electron": "npm run build:node && concurrently -k -n srv,ui,el -c blue,green,yellow \"node dist/node/server/index.js\" \"vite\" \"sleep 3 && electron .\"",
+    "dev": "concurrently -k -n srv,ui -c blue,green \"tsx watch server/core/index.ts\" \"vite\"",
+    "dev:electron": "npm run build:node && concurrently -k -n srv,ui,el -c blue,green,yellow \"node dist/node/server/core/index.js\" \"vite\" \"sleep 3 && electron .\"",
     "build:renderer": "vite build",
     "build:node": "tsc -p tsconfig.node.json",
     "build": "npm run build:renderer && npm run build:node",
